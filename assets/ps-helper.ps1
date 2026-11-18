@@ -45,7 +45,23 @@ try {
         Send-Obj @{ ok = $false; fatal = $true; error = 'photoshop did not become ready' }
         exit 1
     }
-    Send-Obj @{ ok = $true; event = 'ready'; version = "$($ps.Version)"; name = "$($ps.Name)" }
+    # PS 28 (2027) throws the generic "general Photoshop error / functionality may
+    # not be available in this version" on the FIRST document operation of a
+    # freshly started host, even for a valid file: a cold-start race in the
+    # document subsystem. Burn it here (4x4 scratch doc) so Lumina's first real
+    # call always lands on a warm host.
+    $WARM = 'skipped'
+    try {
+        $warmScript = Join-Path $PSScriptRoot 'ps-warmup.jsx'
+        $WARM = "$($ps.DoJavaScript((Get-Content -Raw -Encoding UTF8 -LiteralPath $warmScript)))"
+    } catch {
+        $WARM = 'error: ' + $_.Exception.Message
+    }
+    # app.build looks like "28.0 (20261027.r.20 3951c45)" - the exact build helps
+    # when a release changes ExtendScript behaviour (see lib/ps-compat.js).
+    $BUILD = ''
+    try { $BUILD = "$($ps.DoJavaScript('app.build'))" } catch {}
+    Send-Obj @{ ok = $true; event = 'ready'; version = "$($ps.Version)"; build = $BUILD; warmup = $WARM; name = "$($ps.Name)" }
 } catch {
     Send-Obj @{ ok = $false; fatal = $true; error = $_.Exception.Message }
     exit 1
@@ -81,7 +97,7 @@ while ($running) {
             try {
                 $docs = 0
                 try { $docs = [int]$ps.Documents.Count } catch {}
-                Send-Obj @{ id = $id; ok = $true; version = "$($ps.Version)"; documents = $docs }
+                Send-Obj @{ id = $id; ok = $true; version = "$($ps.Version)"; build = $BUILD; documents = $docs }
             } catch {
                 Send-Obj @{ id = $id; ok = $false; error = $_.Exception.Message }
             }

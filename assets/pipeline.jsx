@@ -7,6 +7,54 @@
 //   subject layer= duplicate with its own adjustments, cut out by the mask
 //   -> merge visible -> global finishing (vignette/clarity/finalUsm/grain)
 
+// ---- path / open helpers -------------------------------------------------
+// Two Photoshop 28 (2027) behaviours are handled here:
+//   1. The FIRST document/file operation of a freshly started host fails with
+//      the generic "发生了常规 Photoshop 错误。该功能可能无法在这个版本的
+//      Photoshop 中使用。" error even for a valid file. ps-helper.ps1 burns that
+//      race with a scratch document, and openDoc() still retries briefly so a
+//      mid-session hiccup (or a host restarted by the user) cannot kill a run.
+//   2. Path separators: both 'C:/x/y.png' and 'C:\x\y.png' open fine once warm,
+//      but the plugin hands over native separators anyway and falls back to the
+//      original string and then to a file:// URI.
+function __psSep(p) {
+    var s = String(p);
+    if (/windows/i.test(String($.os))) s = s.replace(/\//g, '\\');
+    return s;
+}
+function __psFile(p) { return new File(__psSep(p)); }
+function __psUri(p) {
+    var s = String(p).replace(/\\/g, '/');
+    if (s.charAt(0) !== '/') s = '/' + s;
+    return encodeURI('file://' + s);
+}
+function closeExtra(before) {
+    // A failed app.open() can still have created its document before raising the
+    // generic PS 28 error; drop that stray so a retry cannot end up with two
+    // copies of the same file open.
+    while (app.documents.length > before) {
+        try {
+            app.documents[app.documents.length - 1].close(SaveOptions.DONOTSAVECHANGES);
+        } catch (eClose) { break; }
+    }
+}
+function openDoc(p) {
+    var raw = String(p);
+    var probe = new File(__psSep(p));
+    if (!probe.exists) throw new Error('文件不存在或无法访问: ' + raw);
+    var tries = [__psSep(p), raw, __psUri(p)];
+    var last = null;
+    var before = app.documents.length;
+    for (var round = 0; round < 8; round++) {
+        for (var i = 0; i < tries.length; i++) {
+            try { return app.open(new File(tries[i])); } catch (eOpen) { last = eOpen; closeExtra(before); }
+        }
+        // Only a cold/starting host needs this; a real failure exits after ~2s.
+        try { $.sleep(300); } catch (eSleep) {}
+    }
+    throw new Error('open failed [' + raw + ']: ' + ((last && last.message) || last));
+}
+
 // ---- optional AI-subject probe (scene type detection for auto mode) ----
 // Opens CFG.input, runs Select Subject, reports the selection bbox fraction
 // through the error channel (no output file needed), then aborts.
@@ -14,7 +62,7 @@ if (CFG.steps && CFG.steps.__subjectProbe) {
     var __spMsg = 'SUBJECT_PROBE|error|no-doc';
     var __spDoc = null;
     try {
-        __spDoc = app.open(new File(CFG.input));
+        __spDoc = openDoc(CFG.input);
         app.activeDocument = __spDoc;
         var __spOk = false;
         try { __spOk = selectAI({ mode: 'subject', feather: 2 }); } catch (eSpAi) { __spOk = false; }
@@ -205,7 +253,7 @@ function selectPolygonList(maskCfg) {
     var w = d.width.as('px'), h = d.height.as('px');
     var list = [];
     try {
-        var f = new File(maskCfg.polygonListFile);
+        var f = __psFile(maskCfg.polygonListFile);
         f.encoding = 'UTF-8';
         if (f.open('r')) {
             var txt = f.read();
@@ -269,7 +317,7 @@ function selectPolygon(maskCfg) {
     // dense contours can be passed by file: {"polygonFile":"C:/.../polygon.json"}
     if ((!raw || raw.length < 3) && maskCfg.polygonFile) {
         try {
-            var f = new File(maskCfg.polygonFile);
+            var f = __psFile(maskCfg.polygonFile);
             f.encoding = 'UTF-8';
             if (f.open('r')) {
                 var txt = f.read();
@@ -323,7 +371,7 @@ function prepareAlphaSource(maskCfg) {
     var d = A();
     if (__alphaLayer) return true;
     if (!maskCfg.alphaFile) throw new Error('mask.mode=alpha 需要 mask.alphaFile');
-    var ad = app.open(new File(maskCfg.alphaFile));
+    var ad = openDoc(maskCfg.alphaFile);
     var aw = ad.width.as('px'), ah = ad.height.as('px');
     var dw = d.width.as('px'), dh = d.height.as('px');
     if (aw !== dw || ah !== dh) {
@@ -469,7 +517,7 @@ function saveMaskPreview(d, file, hideLayer) {
         hideLayer.visible = false;
         var po = new PNGSaveOptions();
         po.compression = 6;
-        d.saveAs(new File(file), po, true, Extension.LOWERCASE);
+        d.saveAs(__psFile(file), po, true, Extension.LOWERCASE);
         hideLayer.visible = vis;
     } catch (e) {}
 }
@@ -478,13 +526,13 @@ function savePng(d, file) {
     var o = new PNGSaveOptions();
     o.compression = 6;
     o.interlaced = false;
-    d.saveAs(new File(file), o, true, Extension.LOWERCASE);
+    d.saveAs(__psFile(file), o, true, Extension.LOWERCASE);
 }
 function savePsd(d, file) {
     try {
         var o = new PhotoshopSaveOptions();
         o.layers = true;
-        d.saveAs(new File(file), o, true, Extension.LOWERCASE);
+        d.saveAs(__psFile(file), o, true, Extension.LOWERCASE);
     } catch (e) {}
 }
 
@@ -510,7 +558,7 @@ function depthBlur(o) {
 
 var __step = 'open';
 try {
-    var d = app.open(new File(CFG.input));
+    var d = openDoc(CFG.input);
     __step = 'crop';
     d.crop([CFG.crop.left, CFG.crop.top, CFG.crop.right, CFG.crop.bottom]);
     var w = d.width.as('px'), h = d.height.as('px');

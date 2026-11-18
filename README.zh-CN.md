@@ -38,7 +38,13 @@ Lumina 是一个 [DSH](https://github.com/deepseek-ai) 宿主插件（bundle）�
 
 ### 环境要求
 
-**Photoshop 兼容矩阵**：2025（26.x）✅ 已实测；2020–2024 预期支持（旧版 `Select Subject` 失败会自动回退出图）；2019 及更早不保证；PS Elements / macOS 不支持（插件依赖 Windows COM）。
+**Photoshop 兼容矩阵**：2027（28.0，实测 build `28.0 (20261027.r.20 3951c45)`）✅ 已实测；2025（26.x）✅ 已实测；2020–2024 预期支持（旧版 `Select Subject` 失败会自动回退出图）；2019 及更早不保证；PS Elements / macOS 不支持（插件依赖 Windows COM）。
+
+> PS 28 的冷启动坑：全新启动的 Photoshop 第一发**文档操作**（`app.open` 甚至 `app.documents.add`）会抛
+> 「发生了常规 Photoshop 错误。该功能可能无法在这个版本的 Photoshop 中使用。」，哪怕文件完全合法、路径写法正确；
+> 隔一次调用就正常。这是文档子系统的启动竞态，不是路径问题（正斜杠 / 反斜杠 / `file://` 热态都能开）。
+> 插件用 `assets/ps-warmup.jsx` 在会话就绪时先建一个 4×4 文档把它烧掉，打开函数本身再带短重试兜底，
+> 所以第一次 `ps_grade` 不会再把这条误报抛给你。
 
 - Windows 10/11 + **Adobe Photoshop**（开发与验收于 Photoshop 2025；`ps_grade` 依赖 Windows COM，更早版本未验证）。
 - [DSH](https://github.com/deepseek-ai) 桌面端（宿主插件运行在 DSH 宿主进程，才能启动 Photoshop COM）。
@@ -499,7 +505,7 @@ DSH 宿主进程（正常用户权限，不受 shell 沙箱限制）
 - `depth` 蒙版只按画面高度分层，同一高度上的近处/远处物体无法区分；精细场景请用 `polygon` / `alpha`。
 - AI「选择主体」在复杂场景可能把邻近物体选进主体（结果里会给出 AI 选区面积提示），可用手绘多边形收窄。
 - 自动模式是初稿；参数都不满意时用 `params` + `project` 追加版本继续迭代。
-- 冷启动 Photoshop 约 6–10 秒，热态每张图 ~5 秒（4K 图更久；超分会额外增加 Python 处理时间与磁盘占用）。
+- 冷启动 Photoshop 约 6–10 秒（PS 28 另外多约 0.4–1 秒预热，用于烧掉上面那条冷启动竞态），热态每张图 ~5 秒（4K 图更久；超分会额外增加 Python 处理时间与磁盘占用）。
 
 ## 开发
 

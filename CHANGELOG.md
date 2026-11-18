@@ -1,5 +1,48 @@
 # Changelog
 
+## 1.1.12 — 2026-11-18
+
+### Added
+- Photoshop 28 (2027) support, verified on `28.0.0` build `28.0 (20261027.r.20 3951c45)`.
+  `ps_state` now reports the exact build string and a compat block
+  (`major` / `coldStart` / `retry` / `warmup` / `note`) next to the version, so a
+  future release that shifts ExtendScript behaviour is diagnosable from one call.
+- `assets/ps-warmup.jsx`: a 4x4 scratch document created and discarded the moment
+  the session reports ready, which burns the PS 28 cold-start race (see Fixed).
+  Every round sweeps any `lumina-warmup*` document a failed attempt left behind —
+  the user's own open files are never touched.
+- `test/ps28-probe.mjs` (`npm run test:ps`): prints version / build / warm-up
+  result / open-document count and runs one full person-mask round trip, so a new
+  Photoshop build can be re-verified instead of trusting the version table.
+- `lib/ps-compat.js`: `parsePsMajor()` / `psCompat()` — the tested version table.
+
+### Fixed
+- **PS 28 cold-start race.** On a freshly started Photoshop 28 the *first*
+  document operation fails with
+  `发生了常规 Photoshop 错误。该功能可能无法在这个版本的 Photoshop 中使用。`
+  even for a perfectly valid file — `app.open()` and `app.documents.add()` alike,
+  with forward slashes, native backslashes or a `file://` URI. The next call
+  succeeds, so this was a startup race in the document subsystem, not a path or
+  format problem. The session now pre-warms the host and every open helper
+  (`openDoc()` in `assets/pipeline.jsx`, `openDocPS()` in `lib/personmask.js`)
+  retries briefly, so the first `ps_grade` of a cold host no longer reports a
+  bogus "may not be available in this version" error.
+- Missing input files now fail fast with `文件不存在或无法访问: <path>` instead of
+  being retried through every path variant of the open helper.
+- A failed `app.open()` can still create its document before raising the generic
+  PS 28 error; the retry path now closes that stray (`closeExtra()`) so a cold
+  start cannot leave two copies of the same file open.
+- `test/smoke.mjs` decoded `reg.exe` output as UTF-8, which mangled a Chinese
+  Photoshop install path and produced a false registry-mismatch failure; it now
+  decodes with the console code page (GBK). The smoke suite is 27/27 again.
+
+### Changed
+- `toPsPath()` keeps handing native separators to ExtendScript on Windows. This is
+  cosmetic: both separators open the same file once the host is warm. The real
+  fix for PS 28 is the warm-up plus the open retry, documented in both files.
+- README compatibility matrix and Known limitations (EN + zh-CN) now list 2027
+  (28.0) as tested, with the cold-start behaviour explained.
+
 ## 1.1.11 — 2026-10-26
 
 ### Added

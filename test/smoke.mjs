@@ -285,7 +285,11 @@ await check('Photoshop detection is consistent with the registry (when readable)
         ['query', 'HKLM\\SOFTWARE\\Adobe\\Photoshop', '/s', '/v', 'ApplicationPath'],
         { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'], timeout: 5000 },
       )
-      const match = /ApplicationPath\s+REG_\w+\s+([^\r\n]+)/i.exec(String(output))
+      // reg.exe writes redirected stdout in the console code page (cp936 here),
+      // so decoding the Buffer as UTF-8 mangles a Chinese install path.
+      let decoded
+      try { decoded = new TextDecoder('gbk').decode(output) } catch { decoded = String(output) }
+      const match = /ApplicationPath\s+REG_\w+\s+([^\r\n]+)/i.exec(decoded)
       if (match) registryInstall = match[1].trim()
     } catch {
       registryInstall = '' // registry probe blocked (e.g. by a sandbox) or no Adobe key
@@ -759,6 +763,41 @@ await check('no Adobe LUT binaries are bundled', () => {
   const binaries = walkRepo(REPO).filter((file) => /\.(cube|look|3dl)$/i.test(file))
   assert(binaries.length === 0, `bundled LUT binaries: ${binaries.map((file) => path.relative(REPO, file)).join(', ')}`)
   return 'none'
+})
+
+await check('Photoshop 28 path handling (openDoc / toPsPath / psCompat)', async () => {
+  const { toPsPath } = await import('../lib/jsx.js')
+  const { psCompat, parsePsMajor } = await import('../lib/ps-compat.js')
+  // Neutral sample path: the repo hygiene check forbids real user paths.
+  const winPath = 'sub/out/a b.png'
+  const converted = toPsPath(winPath)
+  if (process.platform === 'win32') {
+    // Windows paths are canonicalised to native separators before they are embedded in JSX.
+    assert(!converted.includes('/'), `toPsPath left a forward slash: ${converted}`)
+    assert(converted === 'sub\\out\\a b.png', `unexpected conversion: ${converted}`)
+  } else {
+    assert(converted === winPath, 'POSIX paths must pass through unchanged')
+  }
+  assert(parsePsMajor('28.0.0') === 28, 'major version not parsed')
+  assert(parsePsMajor('') === null, 'empty version should be unknown')
+  const ps28 = psCompat('28.0.0')
+  assert(ps28.major === 28 && ps28.coldStart === true, 'PS 28 must be flagged for the cold-start race')
+  assert(ps28.warmup === true && ps28.retry === true, 'PS 28 needs warm-up plus open retry')
+  assert(psCompat('26.7.1').coldStart === false, 'PS 26 has no cold-start race')
+  // The JSX that actually opens documents must go through the helper, never
+  // a bare app.open(new File('C:/...')).
+  const pipeline = fs.readFileSync(path.join(REPO, 'assets', 'pipeline.jsx'), 'utf8')
+  assert(/function openDoc\(/.test(pipeline), 'pipeline.jsx lacks the openDoc helper')
+  assert(/\$.sleep\(300\)/.test(pipeline), 'openDoc must retry around the PS 28 cold-start race')
+  const warmup = path.join(REPO, 'assets', 'ps-warmup.jsx')
+  assert(fs.existsSync(warmup), 'assets/ps-warmup.jsx is missing')
+  const helper = fs.readFileSync(path.join(REPO, 'assets', 'ps-helper.ps1'), 'utf8')
+  assert(/ps-warmup\.jsx/.test(helper), 'ps-helper.ps1 does not run the warm-up script')
+  assert(!/app\.open\(new File\(CFG\.input\)\)/.test(pipeline), 'pipeline.jsx still opens CFG.input directly')
+  assert(!/app\.open\(new File\(maskCfg\.alphaFile\)\)/.test(pipeline), 'pipeline.jsx still opens alphaFile directly')
+  const personmask = fs.readFileSync(path.join(REPO, 'lib', 'personmask.js'), 'utf8')
+  assert(/toPsPath\(input\)/.test(personmask), 'personmask.js does not normalise its input path')
+  return `psCompat(${ps28.major}) coldStart=${ps28.coldStart}`
 })
 
 // ---------------------------------------------------------------------------

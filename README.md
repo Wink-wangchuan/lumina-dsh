@@ -38,7 +38,16 @@ All 5 built-in styles side by side (original → natural → cinema → vivid �
 
 ### Requirements
 
-**Photoshop compatibility**: 2025 (26.x) tested; 2020-2024 expected (older `Select Subject` failures degrade gracefully); 2019 and earlier unsupported; Photoshop Elements / macOS unsupported (Windows COM required).
+**Photoshop compatibility**: 2027 (28.0, verified on build `28.0 (20261027.r.20 3951c45)`) tested; 2025 (26.x) tested; 2020-2024 expected (older `Select Subject` failures degrade gracefully); 2019 and earlier unsupported; Photoshop Elements / macOS unsupported (Windows COM required).
+
+> The PS 28 cold-start trap: on a freshly started Photoshop the very first **document operation**
+> (`app.open`, and even `app.documents.add`) throws "A general Photoshop error occurred. This
+> functionality may not be available in this version of Photoshop." even for a perfectly valid file,
+> with any path style; the next call works. It is a startup race in the document subsystem, not a
+> path problem (forward slashes, native backslashes and `file://` URIs all open once warm). Lumina
+> burns the race with `assets/ps-warmup.jsx` (a 4x4 scratch document created the moment the session
+> is ready) and keeps a short retry inside the open helpers, so the first `ps_grade` no longer
+> surfaces that bogus error.
 
 - Windows 10/11 + **Adobe Photoshop** (developed and verified against Photoshop 2025; `ps_grade` relies on Windows COM, earlier versions are untested).
 - The [DSH](https://github.com/deepseek-ai) desktop app (the host plugin runs in the DSH host process, which is what makes launching Photoshop COM possible).

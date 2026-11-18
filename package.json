@@ -1,6 +1,6 @@
 {
   "name": "lumina-dsh",
-  "version": "1.1.11",
+  "version": "1.1.12",
   "description": "Lumina — Photoshop automation for DSH: parameterized grading recipes, HDR highlight reconstruction, hot-reloadable style packs, optional super-resolution, auto mode with self-healing, QA metrics and high-resolution vision inspection.",
   "license": "MIT",
   "type": "module",
@@ -28,12 +28,14 @@
     "test/integration.mjs",
     "test/acceptance.mjs",
     "CHANGELOG.md",
-    "assets/model-catalog.json"
+    "assets/model-catalog.json",
+    "test/ps28-probe.mjs"
   ],
   "scripts": {
     "test": "node test/smoke.mjs",
     "test:integration": "node test/integration.mjs",
-    "test:acceptance": "node test/acceptance.mjs"
+    "test:acceptance": "node test/acceptance.mjs",
+    "test:ps": "node test/ps28-probe.mjs"
   },
   "dsh": {
     "bundle": {
